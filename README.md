@@ -4,5 +4,25 @@
 
 # zig-linalg
 
-Linear algebra library developed with the [Zig](https://github.com/ziglang/zig) programming
+Linear algebra library developed using the [Zig](https://github.com/ziglang/zig) programming
 language.
+
+## Usage
+
+### Add zig-linalg to your project
+
+Run the following command:
+```console
+zig fetch --save git+https://github.com/MrVicarius/zig-linalg.git
+```
+
+Add this to your `build.zig`:
+```zig
+    const zla = b.dependecy("zla", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    
+    exe.root_module.addImport("zla", zla.module("zla"));
+```
+
