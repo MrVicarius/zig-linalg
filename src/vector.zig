@@ -1,3 +1,4 @@
+const std = @import("std");
 const expect = @import("std").testing.expect;
 
 pub fn Vec(comptime n: u8, comptime T: type) type {
@@ -6,6 +7,9 @@ pub fn Vec(comptime n: u8, comptime T: type) type {
 
         const This = @This();
 
+        // ---------------
+        // initialization
+        // ---------------
         pub fn init(data: @Vector(n, T)) This {
             return .{.raw = data};
         }
@@ -22,12 +26,40 @@ pub fn Vec(comptime n: u8, comptime T: type) type {
             return .{.raw = @splat(1)};
         }
 
+        // -----------------
+        // logic operations 
+        // -----------------
+        pub fn equal(this: This, other: This) bool {
+            for (0..n) |i| {
+                if (this.raw[i] != other.raw[i]) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        // ----------------
+        // math operations 
+        // ----------------
         pub fn dprod(this: This, other: This) T {
             return @reduce(.Add, this.raw * other.raw);
         }
 
         pub fn add(this: This, other: This) This { 
             return .{.raw = this.raw + other.raw};
+        }
+
+        pub fn sub(this: This, other: This) This { 
+            return .{.raw = this.raw - other.raw};
+        }
+
+        pub fn mul(this: This, other: This) This { 
+            return .{.raw = this.raw * other.raw};
+        }
+
+        pub fn div(this: This, other: This) This { 
+            return .{.raw = this.raw / other.raw};
         }
     }; 
 }
@@ -57,6 +89,15 @@ test "ones" {
     try expect(v.raw[1] == 1);
 }
 
+test "equal" {
+    const v1 = Vec(3, f32).full(1);
+    const v2 = Vec(3, f32).ones();
+    const v3 = Vec(3, f32).zeros();
+
+    try expect(v1.equal(v2));
+    try expect(!v1.equal(v3));
+}
+
 test "dot product" {
     const v1 = Vec(3, u32).init(.{1, 2, 3});
     const v2 = Vec(3, u32).init(.{1, 2, 3});
@@ -67,9 +108,6 @@ test "dot product" {
 test "add" {
     const v1 = Vec(3, u32).init(.{1, 2, 3});
     const v2 = Vec(3, u32).init(.{1, 2, 3});
-    const res = v1.add(v2);
-    try expect(res.raw[0] == 2);
-    try expect(res.raw[1] == 4);
-    try expect(res.raw[2] == 6);
+    try expect(v1.add(v2).equal(Vec(3, u32).init(.{2, 4, 6})));
 }
 
