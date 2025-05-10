@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        zig-version: [master]
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+        include:
+          - zig-version: "0.14.0"
+            os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: ${{ matrix.zig-version }}
+
+      - name: Setup kcov
+        if: github.repository_owner == 'MrVicarius' && matrix.os == 'ubuntu-22.04' && matrix.zig-version == 'master'
+        run: |
+          wget https://github.com/SimonKagstrom/kcov/releases/download/v42/kcov-amd64.tar.gz
+          sudo tar xf kcov-amd64.tar.gz -C /
+
+      - name: Check Formatting
+        run: zig fmt --ast-check --check src
+
+      - name: Run Tests
+        run: zig build test --summary all
+
+      - name: Collect Coverage
+        if: github.repository_owner == 'MrVicarius' && matrix.os == 'ubuntu-22.04' && matrix.zig-version == 'master'
+        run: zig build coverage --summary all
+
+      - name: Upload coverage reports to Codecov
+        if: github.repository_owner == 'MrVicarius' && matrix.os == 'ubuntu-22.04' && matrix.zig-version == 'master'
+        uses: codecov/codecov-action@v5
+        with:
+          directory: zig-out/coverage/kcov-merged
+          fail_ci_if_error: true
+          verbose: true

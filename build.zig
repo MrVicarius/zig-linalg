@@ -1,58 +1,81 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
-// Although this function looks imperative, note that its job is to
-// declaratively construct a build graph that will be executed by an external
-// runner.
+const minimum_zig_version = std.SemanticVersion.parse("0.14.0") catch unreachable;
+
+
 pub fn build(b: *std.Build) void {
-    // Standard target options allows the person running `zig build` to choose
-    // what target to build for. Here we do not override the defaults, which
-    // means any target is allowed, and the default is native. Other options
-    // for restricting supported target set are available.
-    const target = b.standardTargetOptions(.{});
+    comptime if (builtin.zig_version.order(minimum_zig_version) == .lt) {
+        @compileError(std.fmt.comptimePrint(
+            \\Your Zig version does not meet the minimum build requirement:
+            \\  required Zig version: {[minimum_zig_version]}
+            \\  actual   Zig version: {[current_version]}
+            \\
+        , .{
+            .current_version = builtin.zig_version,
+            .minimum_zig_version = minimum_zig_version,
+        }));
+    };
 
-    // Standard optimization options allow the person running `zig build` to select
-    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
-    // set a preferred release mode, allowing the user to decide how to optimize.
+    const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // This creates a "module", which represents a collection of source files alongside
-    // some compilation options, such as optimization mode and linked system libraries.
-    // Every executable or library we compile will be based on one or more modules.
-    const lib_mod = b.createModule(.{
-        // `root_source_file` is the Zig "entry point" of the module. If a module
-        // only contains e.g. external object files, you can make this `null`.
-        // In this case the main source file is merely a path, however, in more
-        // complicated build scripts, this could be a generated file.
+    const zla_module = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    // Now, we will create a static library based on the module we created above.
-    // This creates a `std.Build.Step.Compile`, which is the build step responsible
-    // for actually invoking the compiler.
-    const lib = b.addLibrary(.{
+    const zla = b.addLibrary(.{
         .linkage = .static,
         .name = "zig_linalg",
-        .root_module = lib_mod,
+        .root_module = zla_module,
     });
 
-    // This declares intent for the library to be installed into the standard
-    // location when the user invokes the "install" step (the default step when
-    // running `zig build`).
-    b.installArtifact(lib);
+    b.installArtifact(zla);
 
-    // Creates a step for unit testing. This only builds the test executable
-    // but does not run it.
-    const lib_unit_tests = b.addTest(.{
-        .root_module = lib_mod,
+    // tests ---------------------------------------------------------------
+    const zla_tests = b.addTest(.{
+        .root_module = zla_module,
+    });
+    const vector_tests = b.addTest(.{
+        .root_source_file = b.path("src/vector.zig"),
+        .target = target,
+        .optimize = optimize,
     });
 
-    const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
+    const run_zla_tests = b.addRunArtifact(zla_tests);
+    const run_vector_tests = b.addRunArtifact(vector_tests);
 
-    // Similar to creating the run step earlier, this exposes a `test` step to
-    // the `zig build --help` menu, providing a way for the user to request
-    // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_lib_unit_tests.step);
+    test_step.dependOn(&run_zla_tests.step);
+    test_step.dependOn(&run_vector_tests.step);
+
+    // coverage ---------------------------------------------------------------
+    const kcov_bin = b.findProgram(&.{"kcov"}, &.{}) catch "kcov";
+
+    const kcov_merge = std.Build.Step.Run.create(b, "kcov merge coverage");
+    kcov_merge.rename_step_with_output_arg = false;
+    kcov_merge.addArg(kcov_bin);
+    kcov_merge.addArg("--merge");
+    const coverage_output = kcov_merge.addOutputDirectoryArg(".");
+
+    for ([_]*std.Build.Step.Compile{ zla_tests, vector_tests }) |test_artifact| {
+        const kcov_collect = std.Build.Step.Run.create(b, "kcov collect coverage");
+        kcov_collect.addArg(kcov_bin);
+        kcov_collect.addArg("--collect-only");
+        kcov_collect.addPrefixedDirectoryArg("--include-pattern=", b.path("."));
+        kcov_merge.addDirectoryArg(kcov_collect.addOutputDirectoryArg(test_artifact.name));
+        kcov_collect.addArtifactArg(test_artifact);
+        kcov_collect.enableTestRunnerMode();
+    }
+
+    const install_coverage = b.addInstallDirectory(.{
+        .source_dir = coverage_output,
+        .install_dir = .{ .custom = "coverage" },
+        .install_subdir = "",
+    });
+
+    const coverage_step = b.step("coverage", "Generate a coverage report with kcov");
+    coverage_step.dependOn(&install_coverage.step);
 }
