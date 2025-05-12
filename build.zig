@@ -43,13 +43,20 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const matrix_tests = b.addTest(.{
+        .root_source_file = b.path("src/matrix.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
 
     const run_zla_tests = b.addRunArtifact(zla_tests);
     const run_vector_tests = b.addRunArtifact(vector_tests);
+    const run_matrix_tests = b.addRunArtifact(matrix_tests);
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_zla_tests.step);
     test_step.dependOn(&run_vector_tests.step);
+    test_step.dependOn(&run_matrix_tests.step);
 
     // coverage ---------------------------------------------------------------
     const kcov_bin = b.findProgram(&.{"kcov"}, &.{}) catch "kcov";
