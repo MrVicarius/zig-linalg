@@ -2,76 +2,81 @@ const std = @import("std");
 const assert = @import("std").debug.assert;
 const expect = @import("std").testing.expect;
 
-pub fn Mat(comptime n: u8, comptime T: type) type {
+pub fn Mat(comptime n: u8, comptime m: u8, comptime T: type) type {
     return struct {
-        raw: @Vector(n * n, T),
+        raw: @Vector(n * m, T),
 
         const This = @This();
+        const _n = n;
+        const _m = m;
 
         // ---------------
         // initialization
         // ---------------
-        pub fn init(data: @Vector(n * n, T)) This {
-            return .{.raw = data};
+        pub fn init(data: @Vector(n * m, T)) This {
+            return .{ .raw = data };
         }
 
         pub fn full(value: T) This {
-            return .{.raw = @splat(value)};
+            return .{ .raw = @splat(value) };
         }
 
         pub fn zeros() This {
-            return .{.raw = @splat(0)};
+            return .{ .raw = @splat(0) };
         }
 
         pub fn ones() This {
-            return .{.raw = @splat(1)};
+            return .{ .raw = @splat(1) };
         }
 
         pub fn identity() This {
-            var m = This.zeros();
-            
+            comptime {
+                assert(n == m);
+            }
+            var mat = This.zeros();
+
             for (0..n) |i| {
-                m.set(i, i, 1);
+                mat.set(i, i, 1);
             }
 
-            return m;
+            return mat;
         }
 
         pub fn set(this: *This, row: usize, col: usize, value: T) void {
-            this.raw[row * n + col] = value;
+            this.raw[row * m + col] = value;
         }
 
         // ------------
         // data access
         // ------------
         pub fn get(this: This, row: usize, col: usize) T {
-            return this.raw[row * n + col];
+            return this.raw[row * m + col];
         }
 
         // -----------------
-        // logic operations 
+        // logic operations
         // -----------------
         pub fn equal(this: This, other: This) bool {
             return @reduce(.And, this.raw == other.raw);
         }
 
         // ----------------
-        // math operations 
+        // math operations
         // ----------------
-        pub fn add(this: This, other: This) This { 
-            return .{.raw = this.raw + other.raw};
+        pub fn add(this: This, other: This) This {
+            return .{ .raw = this.raw + other.raw };
         }
 
-        pub fn sub(this: This, other: This) This { 
-            return .{.raw = this.raw - other.raw};
+        pub fn sub(this: This, other: This) This {
+            return .{ .raw = this.raw - other.raw };
         }
 
-        pub fn mul(this: This, other: This) This { 
-            return .{.raw = this.raw * other.raw};
+        pub fn mul(this: This, other: This) This {
+            return .{ .raw = this.raw * other.raw };
         }
 
-        pub fn div(this: This, other: This) This { 
-            return .{.raw = this.raw / other.raw};
+        pub fn div(this: This, other: This) This {
+            return .{ .raw = this.raw / other.raw };
         }
 
         pub fn bias(this: This, value: T) This {
@@ -82,84 +87,90 @@ pub fn Mat(comptime n: u8, comptime T: type) type {
             return this.mul(This.full(value));
         }
 
-        pub fn transpose(this: This) This {
-            return switch(n) {
-                1 => this,
-                2 => This.init(
-                    @shuffle(T, this.raw, undefined, [4]u32{ 0, 2, 1, 3 })
-                ),
-                3 => This.init(
-                    @shuffle(T, this.raw, undefined, [9]u32{ 0, 3, 6, 1, 4, 7, 2, 5, 8 })
-                ),
-                4 => This.init(
-                    @shuffle(
-                        T, 
-                        this.raw, 
-                        undefined, 
-                        [16]u32{ 0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15 },
-                    )
-                ),
-                else => blk: {
-                    var m = This.zeros();
+        pub fn transpose(this: This) Mat(m, n, T) {
+            var result = Mat(m, n, T).zeros();
 
-                    for (0..n) |i| {
-                        for (0..n) |j| {
-                            m.set(j, i, this.get(i, j));
-                        }
-                    }
+            for (0..n) |i| {
+                for (0..m) |j| {
+                    result.set(j, i, this.get(i, j));
+                }
+            }
 
-                    break :blk m;
-                },
-            };
+            return result;
         }
 
-        pub fn t(this: This) This {
+        pub fn t(this: This) Mat(m, n, T) {
             return this.transpose();
+        }
+
+        pub fn mmul(this: This, other: anytype) Mat(n, @TypeOf(other)._m, T) {
+            const p = @TypeOf(other)._m;
+            var result = Mat(n, p, T).zeros();
+
+            for (0..n) |i| {
+                for (0..p) |j| {
+                    var sum: T = 0;
+                    for (0..m) |k| {
+                        sum += this.get(i, k) * other.get(k, j);
+                    }
+                    result.set(i, j, sum);
+                }
+            }
+
+            return result;
         }
     };
 }
 
-test "init" {
-    const m = Mat(2, u32).init(.{
-        1, 2,
-        3, 4,
+test "init rectangular" {
+    const m = Mat(2, 3, u32).init(.{
+        1, 2, 3,
+        4, 5, 6,
     });
 
     try expect(m.raw[0] == 1);
     try expect(m.raw[1] == 2);
     try expect(m.raw[2] == 3);
     try expect(m.raw[3] == 4);
+    try expect(m.raw[4] == 5);
+    try expect(m.raw[5] == 6);
 }
 
-test "full" {
-    const m = Mat(2, u32).full(2);
+test "full rectangular" {
+    const m = Mat(2, 3, u32).full(2);
 
     try expect(m.raw[0] == 2);
     try expect(m.raw[1] == 2);
     try expect(m.raw[2] == 2);
     try expect(m.raw[3] == 2);
+    try expect(m.raw[4] == 2);
+    try expect(m.raw[5] == 2);
 }
 
-test "zeros" {
-    const m = Mat(2, u32).zeros();
+test "zeros rectangular" {
+    const m = Mat(3, 2, u32).zeros();
 
     try expect(m.raw[0] == 0);
     try expect(m.raw[1] == 0);
     try expect(m.raw[2] == 0);
     try expect(m.raw[3] == 0);
+    try expect(m.raw[4] == 0);
+    try expect(m.raw[5] == 0);
 }
 
-test "ones" {
-    const m = Mat(2, u32).ones();
+test "ones rectangular" {
+    const m = Mat(2, 3, u32).ones();
 
     try expect(m.raw[0] == 1);
     try expect(m.raw[1] == 1);
     try expect(m.raw[2] == 1);
     try expect(m.raw[3] == 1);
+    try expect(m.raw[4] == 1);
+    try expect(m.raw[5] == 1);
 }
 
-test "identity" {
-    const m = Mat(2, u32).identity();
+test "identity square" {
+    const m = Mat(2, 2, u32).identity();
 
     try expect(m.raw[0] == 1);
     try expect(m.raw[1] == 0);
@@ -167,116 +178,92 @@ test "identity" {
     try expect(m.raw[3] == 1);
 }
 
-test "get values" {
-    const m = Mat(2, u32).init(.{
-        1, 2,
-        3, 4,
+test "get values rectangular" {
+    const m = Mat(2, 3, u32).init(.{
+        1, 2, 3,
+        4, 5, 6,
     });
 
     try expect(m.get(0, 0) == 1);
     try expect(m.get(0, 1) == 2);
-    try expect(m.get(1, 0) == 3);
-    try expect(m.get(1, 1) == 4);
+    try expect(m.get(0, 2) == 3);
+    try expect(m.get(1, 0) == 4);
+    try expect(m.get(1, 1) == 5);
+    try expect(m.get(1, 2) == 6);
 }
 
-test "equal" {
-    const m1 = Mat(3, f32).full(1);
-    const m2 = Mat(3, f32).ones();
-    const m3 = Mat(3, f32).zeros();
+test "equal rectangular" {
+    const m1 = Mat(2, 3, f32).full(1);
+    const m2 = Mat(2, 3, f32).ones();
+    const m3 = Mat(2, 3, f32).zeros();
 
     try expect(m1.equal(m2));
     try expect(!m1.equal(m3));
 }
 
-test "add" {
-    const m1 = Mat(2, f32).init(.{1, 2, 3, 4});
-    const m2 = Mat(2, f32).init(.{1, 2, 3, 4});
-    try expect(m1.add(m2).equal(Mat(2, f32).init(.{2, 4, 6, 8})));
+test "add rectangular" {
+    const m1 = Mat(2, 3, f32).init(.{ 1, 2, 3, 4, 5, 6 });
+    const m2 = Mat(2, 3, f32).init(.{ 1, 2, 3, 4, 5, 6 });
+    try expect(m1.add(m2).equal(Mat(2, 3, f32).init(.{ 2, 4, 6, 8, 10, 12 })));
 }
 
-test "subtract" {
-    const m1 = Mat(3, f32).ones();
-    const m2 = Mat(3, f32).ones();
-    try expect(m1.sub(m2).equal(Mat(3, f32).zeros()));
+test "subtract rectangular" {
+    const m1 = Mat(2, 3, f32).ones();
+    const m2 = Mat(2, 3, f32).ones();
+    try expect(m1.sub(m2).equal(Mat(2, 3, f32).zeros()));
 }
 
-test "multiplication" {
-    const m1 = Mat(2, f32).init(.{1, 2, 3, 4});
-    const m2 = Mat(2, f32).init(.{1, 2, 3, 4});
-    try expect(m1.mul(m2).equal(Mat(2, f32).init(.{1, 4, 9, 16})));
+test "multiplication rectangular" {
+    const m1 = Mat(2, 3, f32).init(.{ 1, 2, 3, 4, 5, 6 });
+    const m2 = Mat(2, 3, f32).init(.{ 1, 2, 3, 4, 5, 6 });
+    try expect(m1.mul(m2).equal(Mat(2, 3, f32).init(.{ 1, 4, 9, 16, 25, 36 })));
 }
 
-test "division" {
-    const m1 = Mat(2, f32).init(.{1, 2, 3, 4});
-    const m2 = Mat(2, f32).init(.{1, 2, 3, 4});
-    try expect(m1.div(m2).equal(Mat(2, f32).ones()));
+test "division rectangular" {
+    const m1 = Mat(2, 3, f32).init(.{ 2, 4, 6, 8, 10, 12 });
+    const m2 = Mat(2, 3, f32).init(.{ 2, 4, 6, 8, 10, 12 });
+    try expect(m1.div(m2).equal(Mat(2, 3, f32).ones()));
 }
 
-test "bias" {
-    const m = Mat(2, f32).ones();
-    try expect(m.bias(4).equal(Mat(2, f32).full(5))); 
+test "bias rectangular" {
+    const m = Mat(2, 3, f32).ones();
+    try expect(m.bias(4).equal(Mat(2, 3, f32).full(5)));
 }
 
-test "scale" {
-    const m = Mat(2, f32).full(2);
-    try expect(m.scale(0.5).equal(Mat(2, f32).ones())); 
+test "scale rectangular" {
+    const m = Mat(2, 3, f32).full(2);
+    try expect(m.scale(0.5).equal(Mat(2, 3, f32).ones()));
 }
 
-test "transpose" {
-    const m1_2 = Mat(2, u32).init(.{
-        1, 2,
-        3, 4,
-    });
-    const m2_2 = Mat(2, u32).init(.{
-        1, 3,
-        2, 4,
-    });
-
-    try expect(m1_2.transpose().equal(m2_2));
-
-    const m1_3 = Mat(3, u32).init(.{
+test "transpose rectangular" {
+    const m1 = Mat(2, 3, u32).init(.{
         1, 2, 3,
         4, 5, 6,
-        7, 8, 9,
     });
-    const m2_3 = Mat(3, u32).init(.{
-        1, 4, 7,
-        2, 5, 8,
-        3, 6, 9,
-    });
-
-    try expect(m1_3.t().equal(m2_3));
-
-    const m1_4 = Mat(4, u32).init(.{
-        1, 2, 3, 4,
-        5, 6, 7, 8,
-        9, 10, 11, 12,
-        13, 14, 15, 16,
-    });
-    const m2_4 = Mat(4, u32).init(.{
-        1, 5, 9, 13,
-        2, 6, 10, 14,
-        3, 7, 11, 15,
-        4, 8, 12, 16,
+    const m2 = Mat(3, 2, u32).init(.{
+        1, 4,
+        2, 5,
+        3, 6,
     });
 
-    try expect(m1_4.t().equal(m2_4));
-
-    const m1_5 = Mat(5, u32).init(.{
-        1, 2, 3, 4, 5,
-        6, 7, 8, 9, 10,
-        11, 12, 13, 14, 15,
-        16, 17, 18, 19, 20,
-        21, 22, 23, 24, 25,
-    });
-    const m2_5 = Mat(5, u32).init(.{
-        1, 6, 11, 16, 21,
-        2, 7, 12, 17, 22,
-        3, 8, 13, 18, 23,
-        4, 9, 14, 19, 24,
-        5, 10, 15, 20, 25,
-    });
-
-    try expect(m1_5.t().equal(m2_5));
+    try expect(m1.transpose().equal(m2));
+    try expect(m2.transpose().equal(m1));
 }
 
+test "matrix multiplication" {
+    const m1 = Mat(2, 3, f32).init(.{
+        1, 2, 3,
+        4, 5, 6,
+    });
+    const m2 = Mat(3, 2, f32).init(.{
+        7,  8,
+        9,  10,
+        11, 12,
+    });
+    const expected = Mat(2, 2, f32).init(.{
+        58,  64,
+        139, 154,
+    });
+
+    try expect(m1.mmul(m2).equal(expected));
+}
