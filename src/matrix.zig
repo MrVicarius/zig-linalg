@@ -1,9 +1,18 @@
+//! A linear algebra module providing matrix operations with compile-time known dimensions.
+//! All matrices are stored in row-major order using SIMD vectors for efficient computation.
+
 const std = @import("std");
 const assert = @import("std").debug.assert;
 const expect = @import("std").testing.expect;
 
+/// A generic matrix type with compile-time known dimensions.
+/// Parameters:
+///   n: number of rows
+///   m: number of columns
+///   T: element type (e.g. f32, f64, etc)
 pub fn Mat(comptime n: u8, comptime m: u8, comptime T: type) type {
     return struct {
+        /// Raw data storage as SIMD vector
         raw: @Vector(n * m, T),
 
         const This = @This();
@@ -13,22 +22,28 @@ pub fn Mat(comptime n: u8, comptime m: u8, comptime T: type) type {
         // ---------------
         // initialization
         // ---------------
+
+        /// Initialize a matrix with raw vector data in row-major order
         pub fn init(data: @Vector(n * m, T)) This {
             return .{ .raw = data };
         }
 
+        /// Create a matrix filled with a single value
         pub fn full(value: T) This {
             return .{ .raw = @splat(value) };
         }
 
+        /// Create a matrix filled with zeros
         pub fn zeros() This {
             return .{ .raw = @splat(0) };
         }
 
+        /// Create a matrix filled with ones
         pub fn ones() This {
             return .{ .raw = @splat(1) };
         }
 
+        /// Create an identity matrix. Only valid for square matrices.
         pub fn identity() This {
             comptime {
                 assert(n == m);
@@ -42,6 +57,7 @@ pub fn Mat(comptime n: u8, comptime m: u8, comptime T: type) type {
             return mat;
         }
 
+        /// Set a value at the specified row and column
         pub fn set(this: *This, row: usize, col: usize, value: T) void {
             this.raw[row * m + col] = value;
         }
@@ -49,6 +65,8 @@ pub fn Mat(comptime n: u8, comptime m: u8, comptime T: type) type {
         // ------------
         // data access
         // ------------
+
+        /// Get the value at the specified row and column
         pub fn get(this: This, row: usize, col: usize) T {
             return this.raw[row * m + col];
         }
@@ -56,6 +74,8 @@ pub fn Mat(comptime n: u8, comptime m: u8, comptime T: type) type {
         // -----------------
         // logic operations
         // -----------------
+
+        /// Check if two matrices are equal (element-wise comparison)
         pub fn equal(this: This, other: This) bool {
             return @reduce(.And, this.raw == other.raw);
         }
@@ -63,30 +83,38 @@ pub fn Mat(comptime n: u8, comptime m: u8, comptime T: type) type {
         // ----------------
         // math operations
         // ----------------
+
+        /// Add two matrices element-wise
         pub fn add(this: This, other: This) This {
             return .{ .raw = this.raw + other.raw };
         }
 
+        /// Subtract two matrices element-wise
         pub fn sub(this: This, other: This) This {
             return .{ .raw = this.raw - other.raw };
         }
 
+        /// Multiply two matrices element-wise (Hadamard product)
         pub fn mul(this: This, other: This) This {
             return .{ .raw = this.raw * other.raw };
         }
 
+        /// Divide two matrices element-wise
         pub fn div(this: This, other: This) This {
             return .{ .raw = this.raw / other.raw };
         }
 
+        /// Add a scalar value to all elements
         pub fn bias(this: This, value: T) This {
             return this.add(This.full(value));
         }
 
+        /// Multiply all elements by a scalar value
         pub fn scale(this: This, value: T) This {
             return this.mul(This.full(value));
         }
 
+        /// Transpose the matrix, returning a new matrix with swapped dimensions
         pub fn transpose(this: This) Mat(m, n, T) {
             var result = Mat(m, n, T).zeros();
 
@@ -99,10 +127,13 @@ pub fn Mat(comptime n: u8, comptime m: u8, comptime T: type) type {
             return result;
         }
 
+        /// Shorthand for transpose()
         pub fn t(this: This) Mat(m, n, T) {
             return this.transpose();
         }
 
+        /// Perform matrix multiplication (dot product)
+        /// The number of columns in this matrix must match the number of rows in other
         pub fn mmul(this: This, other: anytype) Mat(n, @TypeOf(other)._m, T) {
             const p = @TypeOf(other)._m;
             var result = Mat(n, p, T).zeros();
