@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 
 const minimum_zig_version = std.SemanticVersion.parse("0.14.0") catch unreachable;
 
-
 pub fn build(b: *std.Build) void {
     comptime if (builtin.zig_version.order(minimum_zig_version) == .lt) {
         @compileError(std.fmt.comptimePrint(
@@ -85,4 +84,19 @@ pub fn build(b: *std.Build) void {
 
     const coverage_step = b.step("coverage", "Generate a coverage report with kcov");
     coverage_step.dependOn(&install_coverage.step);
+
+    // docs ---------------------------------------------------------------
+    const autodoc_exe = b.addObject(.{
+        .name = "zla",
+        .root_module = zla_module,
+    });
+
+    const install_docs = b.addInstallDirectory(.{
+        .source_dir = autodoc_exe.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "doc/zig-linalg",
+    });
+
+    const docs_step = b.step("docs", "Generate and install documentation");
+    docs_step.dependOn(&install_docs.step);
 }
