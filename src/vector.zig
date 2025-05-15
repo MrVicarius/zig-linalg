@@ -4,6 +4,7 @@
 const std = @import("std");
 const assert = @import("std").debug.assert;
 const expect = @import("std").testing.expect;
+const Mat = @import("matrix.zig").Mat;
 
 /// A generic vector type with compile-time known dimensions.
 /// Parameters:
@@ -140,6 +141,66 @@ pub fn Vec(comptime n: u8, comptime T: type) type {
                 this.x() * other.y() - this.y() * other.x(),
             });
         }
+
+        /// Calculate the angle between two vectors in radians.
+        /// Only available for floating-point types.
+        pub fn angle(this: This, other: This) T {
+            assert(@typeInfo(T) != .int);
+            const cos_theta = this.dprod(other) / (this.norm() * other.norm());
+            // Handle floating point precision issues
+            if (cos_theta > 1) return 0;
+            if (cos_theta < -1) return std.math.pi;
+            return std.math.acos(cos_theta);
+        }
+
+        /// Project this vector onto another vector.
+        /// Only available for floating-point types.
+        pub fn project(this: This, onto: This) This {
+            assert(@typeInfo(T) != .int);
+            const factor = this.dprod(onto) / onto.dprod(onto);
+            return onto.scale(factor);
+        }
+
+        /// Reflect this vector across another vector.
+        /// Only available for floating-point types.
+        pub fn reflect(this: This, normal: This) This {
+            assert(@typeInfo(T) != .int);
+            const _n = normal.normalize();
+            const d = this.dprod(_n);
+            return this.sub(_n.scale(2 * d));
+        }
+
+        /// Rotate a 2D vector by an angle (in radians).
+        /// Only valid for 2D vectors and floating-point types.
+        pub fn rotate(this: This, theta: T) This {
+            assert(@typeInfo(T) != .int);
+            comptime {
+                assert(n == 2);
+            }
+            const cos = @cos(theta);
+            const sin = @sin(theta);
+            return This.init(.{
+                this.x() * cos - this.y() * sin,
+                this.x() * sin + this.y() * cos,
+            });
+        }
+
+        /// Linear interpolation between two vectors.
+        /// Only available for floating-point types.
+        pub fn lerp(this: This, other: This, t: T) This {
+            assert(@typeInfo(T) != .int);
+            return this.scale(1 - t).add(other.scale(t));
+        }
+
+        /// Convert the vector to a row matrix (1×n)
+        pub fn toRowMatrix(this: This) Mat(1, n, T) {
+            return Mat(1, n, T).init(this.raw);
+        }
+
+        /// Convert the vector to a column matrix (n×1)
+        pub fn toColMatrix(this: This) Mat(n, 1, T) {
+            return Mat(n, 1, T).init(this.raw);
+        }
     };
 }
 
@@ -241,4 +302,56 @@ test "cross product" {
     const v1 = Vec(3, f32).init(.{ 1, 2, 3 });
     const v2 = Vec(3, f32).init(.{ 3, 4, 5 });
     try expect(v1.cprod(v2).equal(Vec(3, f32).init(.{ -2, 4, -2 })));
+}
+
+test "angle between vectors" {
+    const v1 = Vec(2, f32).init(.{ 1, 0 });
+    const v2 = Vec(2, f32).init(.{ 0, 1 });
+    try expect(std.math.approxEqAbs(f32, v1.angle(v2), std.math.pi / 2.0, 1e-6));
+}
+
+test "vector projection" {
+    const v1 = Vec(2, f32).init(.{ 3, 3 });
+    const v2 = Vec(2, f32).init(.{ 0, 1 });
+    const proj = v1.project(v2);
+    try expect(std.math.approxEqAbs(f32, proj.x(), 0, 1e-6));
+    try expect(std.math.approxEqAbs(f32, proj.y(), 3, 1e-6));
+}
+
+test "vector reflection" {
+    const v = Vec(2, f32).init(.{ 1, -1 });
+    const normal = Vec(2, f32).init(.{ 0, 1 });
+    const reflected = v.reflect(normal);
+    try expect(std.math.approxEqAbs(f32, reflected.x(), 1, 1e-6));
+    try expect(std.math.approxEqAbs(f32, reflected.y(), 1, 1e-6));
+}
+
+test "vector rotation" {
+    const v = Vec(2, f32).init(.{ 1, 0 });
+    const rotated = v.rotate(std.math.pi / 2.0);
+    try expect(std.math.approxEqAbs(f32, rotated.x(), 0, 1e-6));
+    try expect(std.math.approxEqAbs(f32, rotated.y(), 1, 1e-6));
+}
+
+test "vector interpolation" {
+    const v1 = Vec(3, f32).init(.{ 1, 1, 1 });
+    const v2 = Vec(3, f32).init(.{ 3, 3, 3 });
+    const v_mid = v1.lerp(v2, 0.5);
+    try expect(v_mid.equal(Vec(3, f32).init(.{ 2, 2, 2 })));
+}
+
+test "vector to row matrix" {
+    const v = Vec(3, f32).init(.{ 1, 2, 3 });
+    const m = v.toRowMatrix();
+    try expect(m.get(0, 0) == 1);
+    try expect(m.get(0, 1) == 2);
+    try expect(m.get(0, 2) == 3);
+}
+
+test "vector to column matrix" {
+    const v = Vec(3, f32).init(.{ 1, 2, 3 });
+    const m = v.toColMatrix();
+    try expect(m.get(0, 0) == 1);
+    try expect(m.get(1, 0) == 2);
+    try expect(m.get(2, 0) == 3);
 }

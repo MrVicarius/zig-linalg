@@ -4,6 +4,7 @@
 const std = @import("std");
 const assert = @import("std").debug.assert;
 const expect = @import("std").testing.expect;
+const Vec = @import("vector.zig").Vec;
 
 /// A generic matrix type with compile-time known dimensions.
 /// Parameters:
@@ -149,6 +150,119 @@ pub fn Mat(comptime n: u8, comptime m: u8, comptime T: type) type {
             }
 
             return result;
+        }
+
+        /// Calculate the trace (sum of diagonal elements).
+        /// Only valid for square matrices.
+        pub fn trace(this: This) T {
+            comptime {
+                assert(n == m);
+            }
+            var sum: T = 0;
+            for (0..n) |i| {
+                sum += this.get(i, i);
+            }
+            return sum;
+        }
+
+        /// Calculate the determinant of a 2x2 or 3x3 matrix.
+        /// Only valid for square matrices of size 2x2 or 3x3.
+        pub fn det(this: This) T {
+            comptime {
+                assert(n == m);
+                assert(n == 2 or n == 3);
+            }
+
+            if (n == 2) {
+                return this.get(0, 0) * this.get(1, 1) - this.get(0, 1) * this.get(1, 0);
+            } else { // n == 3
+                return this.get(0, 0) * (this.get(1, 1) * this.get(2, 2) - this.get(1, 2) * this.get(2, 1)) -
+                    this.get(0, 1) * (this.get(1, 0) * this.get(2, 2) - this.get(1, 2) * this.get(2, 0)) +
+                    this.get(0, 2) * (this.get(1, 0) * this.get(2, 1) - this.get(1, 1) * this.get(2, 0));
+            }
+        }
+
+        /// Extract a submatrix by removing specified row and column.
+        pub fn submatrix(this: This, comptime row: u8, comptime col: u8) Mat(n - 1, m - 1, T) {
+            comptime {
+                assert(row < n);
+                assert(col < m);
+            }
+
+            var result = Mat(n - 1, m - 1, T).zeros();
+            var r: usize = 0;
+            var c: usize = 0;
+
+            for (0..n) |i| {
+                if (i == row) continue;
+                c = 0;
+                for (0..m) |j| {
+                    if (j == col) continue;
+                    result.set(r, c, this.get(i, j));
+                    c += 1;
+                }
+                r += 1;
+            }
+
+            return result;
+        }
+
+        /// Calculate the inverse of a 2x2 matrix.
+        /// Only valid for 2x2 matrices with non-zero determinant.
+        /// Only available for floating-point types.
+        pub fn inv2(this: This) This {
+            assert(@typeInfo(T) != .int);
+            comptime {
+                assert(n == 2 and m == 2);
+            }
+
+            const d = this.det();
+            if (d == 0) {
+                @panic("Matrix is not invertible (determinant is zero)");
+            }
+
+            const inv_det = 1 / d;
+            return This.init(.{
+                this.get(1, 1) * inv_det, -this.get(0, 1) * inv_det,
+                -this.get(1, 0) * inv_det, this.get(0, 0) * inv_det,
+            });
+        }
+
+        /// Format the matrix as a string for display.
+        /// The caller owns the returned memory.
+        pub fn format(this: This, allocator: std.mem.Allocator) ![]const u8 {
+            var result = std.ArrayList(u8).init(allocator);
+            defer result.deinit();
+
+            const writer = result.writer();
+            try writer.writeAll("[\n");
+
+            for (0..n) |i| {
+                try writer.writeAll("  ");
+                for (0..m) |j| {
+                    try writer.print("{d} ", .{this.get(i, j)});
+                }
+                try writer.writeAll("\n");
+            }
+            try writer.writeAll("]");
+
+            return result.toOwnedSlice();
+        }
+
+        /// Convert a row matrix (1×m) to a vector
+        pub fn toVecFromRow(this: This) Vec(m, T) {
+            comptime {
+                assert(n == 1);
+            }
+            return Vec(m, T).init(this.raw);
+        }
+
+        /// Convert a column matrix (n×1) to a vector
+        pub fn toVecFromCol(this: This) Vec(n, T) {
+            comptime {
+                assert(m == 1);
+            }
+            return Vec(n, T).init(this.raw);
         }
     };
 }
@@ -297,4 +411,125 @@ test "matrix multiplication" {
     });
 
     try expect(m1.mmul(m2).equal(expected));
+}
+
+test "trace" {
+    const m = Mat(2, 2, f32).init(.{
+        1, 2,
+        3, 4,
+    });
+    try expect(m.trace() == 5);
+}
+
+test "determinant 2x2" {
+    const m = Mat(2, 2, f32).init(.{
+        1, 2,
+        3, 4,
+    });
+    try expect(m.det() == -2);
+}
+
+test "determinant 3x3" {
+    const m = Mat(3, 3, f32).init(.{
+        1, 2, 3,
+        4, 5, 6,
+        7, 8, 9,
+    });
+    try expect(m.det() == 0);
+
+    const m2 = Mat(3, 3, f32).init(.{
+        2, -3, 1,
+        2, 0, -1,
+        1, 4, 5,
+    });
+    try expect(m2.det() == 49);
+}
+
+test "submatrix" {
+    const m = Mat(3, 3, f32).init(.{
+        1, 2, 3,
+        4, 5, 6,
+        7, 8, 9,
+    });
+    const sub = m.submatrix(1, 1);
+    const expected = Mat(2, 2, f32).init(.{
+        1, 3,
+        7, 9,
+    });
+    try expect(sub.equal(expected));
+}
+
+test "2x2 matrix inversion" {
+    const m = Mat(2, 2, f32).init(.{
+        4, 7,
+        2, 6,
+    });
+    const inv = m.inv2();
+    const expected = Mat(2, 2, f32).init(.{
+        0.6, -0.7,
+        -0.2, 0.4,
+    });
+    
+    // Test with approximate equality due to floating point arithmetic
+    for (0..2) |i| {
+        for (0..2) |j| {
+            try expect(std.math.approxEqAbs(f32, inv.get(i, j), expected.get(i, j), 1e-6));
+        }
+    }
+
+    // Test that m * m^(-1) = I
+    const identity = m.mmul(inv);
+    const eye = Mat(2, 2, f32).identity();
+    for (0..2) |i| {
+        for (0..2) |j| {
+            try expect(std.math.approxEqAbs(f32, identity.get(i, j), eye.get(i, j), 1e-6));
+        }
+    }
+}
+
+test "matrix format" {
+    const m = Mat(2, 2, f32).init(.{
+        1, 2,
+        3, 4,
+    });
+    const str = try m.format(std.testing.allocator);
+    defer std.testing.allocator.free(str);
+    
+    const expected = 
+        \\[
+        \\  1 2 
+        \\  3 4 
+        \\]
+    ;
+    try expect(std.mem.eql(u8, str, expected));
+}
+
+test "row matrix to vector" {
+    const m = Mat(1, 3, f32).init(.{ 1, 2, 3 });
+    const v = m.toVecFromRow();
+    try expect(v.raw[0] == 1);
+    try expect(v.raw[1] == 2);
+    try expect(v.raw[2] == 3);
+}
+
+test "column matrix to vector" {
+    const m = Mat(3, 1, f32).init(.{ 1, 2, 3 });
+    const v = m.toVecFromCol();
+    try expect(v.raw[0] == 1);
+    try expect(v.raw[1] == 2);
+    try expect(v.raw[2] == 3);
+}
+
+test "vector-matrix conversion roundtrip" {
+    const v = Vec(3, f32).init(.{ 1, 2, 3 });
+    
+    // Row matrix roundtrip
+    const row_mat = v.toRowMatrix();
+    const v_from_row = row_mat.toVecFromRow();
+    try expect(v.equal(v_from_row));
+    
+    // Column matrix roundtrip
+    const col_mat = v.toColMatrix();
+    const v_from_col = col_mat.toVecFromCol();
+    try expect(v.equal(v_from_col));
 }
